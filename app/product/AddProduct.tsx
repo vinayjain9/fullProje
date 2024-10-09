@@ -1017,7 +1017,379 @@ export default function AddProduct() {
   );
 }
 */
+"use client";
+import { useEffect, useState, FormEvent } from "react";
+import { Progress, notification, Table, Button, Space, Select } from "antd";
+import { addAddProT, deleteAddProT, getAddProTs, updateAddProT } from "../../actions/product/productAction";
+import { getTodos, TodoItem } from "../../actions/category/categoryAction";
+import PopupC from "@/app/components/PopupC";
 
+interface AddProT {
+  id: number;
+  ProductName: string;
+  ProductDescription: string;
+  Category: string;
+  Brand: string;
+  ModuleNumber: string;
+  Dimensions: string;
+  Colors: string;
+  Warranty: string;
+  photoUrls: string[];
+  fileKeys: string[];
+}
+
+export default function AddProduct() {
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [tableData, setTableData] = useState<AddProT[]>([]);
+  const [editAddProT, setEditAddProT] = useState<AddProT | undefined>();
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [previewSrcs, setPreviewSrcs] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [todoItems, setTodoItems] = useState<TodoItem[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | undefined>();
+  const [selectedBrand, setSelectedBrand] = useState<string | undefined>();
+
+  const openPopup = () => {
+    setIsPopupOpen(true);
+  };
+
+  const closePopup = () => {
+    setIsPopupOpen(false);
+    setEditAddProT(undefined);
+    setSelectedFiles([]);
+    setPreviewSrcs([]);
+    setErrorMessage(null);
+    setIsSubmitting(false);
+  };
+
+  const loadTableData = async () => {
+    try {
+      setLoading(true);
+      const AddProTs: AddProT[] = await getAddProTs();
+      setTableData(AddProTs);
+    } catch (error) {
+      console.error("Error loading data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTodoOptions = async () => {
+    try {
+      const todos = await getTodos();
+      setTodoItems(todos);
+    } catch (error) {
+      console.error("Error loading todos:", error);
+    }
+  };
+
+  const handleEdit = (record: AddProT) => {
+    setEditAddProT(record);
+    setSelectedCategory(record.Category);
+    setSelectedBrand(record.Brand);
+    setIsPopupOpen(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteAddProT(id);
+      notification.success({
+        message: "Deleted",
+        description: "Product deleted successfully.",
+      });
+      loadTableData();
+    } catch (error) {
+      notification.error({
+        message: "Error",
+        description: "Failed to delete product. Please try again.",
+      });
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    if (files.length > 0) {
+      setSelectedFiles(files);
+      setPreviewSrcs(files.map((file) => URL.createObjectURL(file)));
+    }
+  };
+
+  const handleAddProTSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setLoading(true);
+    setProgress(0);
+    setIsPopupOpen(false);
+
+    const target = event.target as typeof event.target & {
+      ProductName: { value: string };
+      ProductDescription: { value: string };
+      ModuleNumber: { value: string };
+      Dimensions: { value: string };
+      Colors: { value: string };
+      Warranty: { value: string };
+    };
+
+    if (selectedFiles.length === 0 && !editAddProT) {
+      setErrorMessage("Please select images.");
+      setLoading(false);
+      setIsSubmitting(false);
+      setIsPopupOpen(true);
+      return;
+    }
+
+    let imageUrls: string[] = editAddProT?.photoUrls || [];
+
+    if (selectedFiles.length > 0) {
+      if (editAddProT?.fileKeys?.length) {
+        await Promise.all(
+          editAddProT.fileKeys.map((key: string) =>
+            fetch(`/api/AddImgPut?fileKey=${key}`, { method: "DELETE" })
+          )
+        );
+      }
+
+      const formData = new FormData();
+      selectedFiles.forEach((file) => formData.append("files", file));
+
+      try {
+        setProgress(30);
+        const response = await fetch("/api/AddImgPut", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          setProgress(60);
+          const result = await response.json();
+          imageUrls = result.urls;
+        } else {
+          const errorText = await response.text();
+          setErrorMessage(`Failed to upload: ${errorText}`);
+          setLoading(false);
+          setIsSubmitting(false);
+          setIsPopupOpen(true);
+          return;
+        }
+      } catch (error) {
+        setErrorMessage("Error uploading files. Please try again.");
+        setLoading(false);
+        setIsSubmitting(false);
+        setIsPopupOpen(true);
+        return;
+      }
+    }
+
+    try {
+      if (editAddProT) {
+        await updateAddProT({
+          id: editAddProT.id,
+          ProductName: target.ProductName.value,
+          ProductDescription: target.ProductDescription.value,
+          Category: selectedCategory || "",
+          Brand: selectedBrand || "",
+          ModuleNumber: target.ModuleNumber.value,
+          Dimensions: target.Dimensions.value,
+          Colors: target.Colors.value,
+          Warranty: target.Warranty.value,
+          photoUrls: imageUrls,
+          fileKeys: editAddProT.fileKeys,
+        });
+      } else {
+        await addAddProT({
+          ProductName: target.ProductName.value,
+          ProductDescription: target.ProductDescription.value,
+          Category: selectedCategory || "",
+          Brand: selectedBrand || "",
+          ModuleNumber: target.ModuleNumber.value,
+          Dimensions: target.Dimensions.value,
+          Colors: target.Colors.value,
+          Warranty: target.Warranty.value,
+          photoUrls: imageUrls,
+          fileKeys: [],
+        });
+      }
+
+      setProgress(100);
+      notification.success({
+        message: "Success",
+        description: "Product info and images saved successfully.",
+      });
+
+      loadTableData();
+    } catch (error) {
+      setErrorMessage("Error saving the product. Please try again.");
+    } finally {
+      setLoading(false);
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFileClear = () => {
+    setSelectedFiles([]);
+    setPreviewSrcs([]);
+  };
+
+  useEffect(() => {
+    loadTableData();
+    loadTodoOptions();
+  }, []);
+
+  const columns = [
+    {
+      title: "Product Name",
+      dataIndex: "ProductName",
+      key: "ProductName",
+    },
+    {
+      title: "Category",
+      dataIndex: "Category",
+      key: "Category",
+    },
+    {
+      title: "Brand",
+      dataIndex: "Brand",
+      key: "Brand",
+    },
+    {
+      title: "Actions",
+      key: "actions",
+      render: (text: string, record: AddProT) => (
+        <Space size="middle">
+          <Button onClick={() => handleEdit(record)} type="primary">
+            Edit
+          </Button>
+          <Button onClick={() => handleDelete(record.id)} type="primary" danger>
+            Delete
+          </Button>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <main className="bg-gray-800 w-4/5 mx-auto mt-10 p-5 rounded-lg">
+      <div className="flex justify-between items-center mb-3">
+        <div className="text-3xl text-white">Product Information</div>
+        <button
+          onClick={openPopup}
+          className="bg-blue-500 text-white px-5 py-3 text-xl rounded-xl"
+        >
+          Add Product
+        </button>
+      </div>
+
+      {loading && (
+        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
+          <Progress type="circle" percent={progress} />
+        </div>
+      )}
+
+      <Table
+        className="bg-white rounded-lg overflow-hidden"
+        dataSource={tableData}
+        columns={columns}
+        rowKey="id"
+        pagination={{ pageSize: 5 }}
+      />
+<PopupC isOpen={isPopupOpen} onClose={closePopup}>
+  <form onSubmit={handleAddProTSubmit} className="bg-white p-10 rounded-lg">
+          <div className="border-b-4 ">
+    <h2 className="text-2xl ">{editAddProT ? "Edit Product" : "Add Product"}</h2>
+            
+</div>
+    <div className="grid grid-cols-3 pt-2 gap-4">
+      {[
+        { label: "Product Name", name: "ProductName", defaultValue: editAddProT?.ProductName },
+        { label: "Module Number", name: "ModuleNumber", defaultValue: editAddProT?.ModuleNumber },
+        { label: "Dimensions", name: "Dimensions", defaultValue: editAddProT?.Dimensions },
+        { label: "Colors", name: "Colors", defaultValue: editAddProT?.Colors },
+        { label: "Warranty", name: "Warranty", defaultValue: editAddProT?.Warranty },
+      ].map(({ label, name, defaultValue }) => (
+        <div key={name}>
+          <label className="text-lg font-semibold">{label}</label>
+          <input className="w-full px-2 py-1 text-lg border-2 border-gray-400 rounded-lg" type="text" name={name} defaultValue={defaultValue} required />
+        </div>
+      ))}
+
+      <div>
+              <label className="text-lg font-semibold">Category</label>
+              <Select
+                className="w-full my-1"
+                placeholder="Select Category"
+                value={selectedCategory}
+                onChange={(value) => setSelectedCategory(value)}
+              >
+                {todoItems.map((item) => (
+                  <Select.Option key={item.id} value={item.firstName}>
+                    {item.firstName}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-lg font-semibold">Brand</label>
+              <Select
+                className="w-full"
+                placeholder="Select Brand"
+                value={selectedBrand}
+                onChange={(value) => setSelectedBrand(value)}
+              >
+                {todoItems.map((item) => (
+                  <Select.Option key={item.id} value={item.lastName}>
+                    {item.lastName}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+    </div>
+
+          <div className="grid grid-cols-8 pt-2 gap-4" > 
+            <div className="col-span-7"> <label className="text-lg font-semibold px-2">Product Images</label>
+      <input type="file" multiple onChange={handleFileChange} accept="image/*" className="w-2/5 px-4 py-2 text-xl border-2 border-gray-400 rounded-lg" />
+      <div className="mt-2 flex flex-wrap gap-4">
+        {previewSrcs.map((src, index) => (
+          <img key={index} src={src} alt={`preview-${index}`} className="w-32 h-32 object-cover rounded-lg" />
+        ))}
+            </div>
+ </div>
+        <div>
+            
+      {selectedFiles.length > 0 && (
+        <Button onClick={handleFileClear} type="default" className="mt-2 bg-red-400">
+          Clear Selected Images
+        </Button>
+      )}
+    </div>
+          </div>
+          
+        
+
+    {errorMessage && <div className="text-red-500 mt-2 text-lg">{errorMessage}</div>}
+
+    <div className="mt-5 flex justify-end space-x-3">
+      <Button onClick={closePopup} type="default" className="text-lg">
+        Cancel
+      </Button>
+      <Button htmlType="submit" type="primary" className="text-lg">
+        {editAddProT ? "Update Product" : "Add Product"}
+      </Button>
+    </div>
+  </form>
+</PopupC>
+
+
+    </main>
+  );
+}
+
+/*
 "use client";
 import {addAddProT,  deleteAddProT,  getAddProTs,  updateAddProT,} from "../../actions/product/productAction";
 import { useEffect, useState, FormEvent } from "react";
@@ -1285,14 +1657,12 @@ export default function AddProduct() {
         </button>
       </div>
 
-      {/* Loader when saving data */}
       {loading && (
         <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
           <Progress type="circle" percent={progress} />
         </div>
       )}
 
-      {/* Ant Design table */}
       <Table
         className="bg-white rounded-lg overflow-hidden"
         dataSource={tableData}
@@ -1390,7 +1760,6 @@ export default function AddProduct() {
             </div>
           </div>
 
-          {/* Image upload */}
           <div className="mt-4">
             <label className="text-xl">Product Images</label>
             <input
@@ -1401,7 +1770,6 @@ export default function AddProduct() {
               className="w-full px-4 py-2 text-xl border-2 border-gray-400 rounded-lg"
             />
 
-            {/* Image preview */}
             <div className="mt-2 flex flex-wrap gap-4">
               {previewSrcs.map((src, index) => (
                 <img
@@ -1421,13 +1789,9 @@ export default function AddProduct() {
               </div>
             )}
           </div>
-
-          {/* Error message */}
           {errorMessage && (
             <div className="text-red-500 mt-2 text-lg">{errorMessage}</div>
           )}
-
-          {/* Form actions */}
           <div className="mt-5 flex justify-end space-x-3">
             <Button onClick={closePopup} type="default" className="text-lg">
               Cancel
@@ -1440,4 +1804,4 @@ export default function AddProduct() {
       </PopupC>
     </main>
   );
-}
+}*/

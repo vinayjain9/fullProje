@@ -14,7 +14,7 @@ const PopupC: React.FC<PopupProps> = ({ isOpen, onClose, children }) => {
       <div className="bg-gray-800 p-8 rounded shadow-lg relative">
         <button
           onClick={onClose}
-          className="absolute top-2 right-3 text-gray-500 hover:text-gray-700"
+          className="absolute top-1 right-2  text-gray-50  text-3xl hover:text-gray-300  "
         >
           &times;
         </button>
